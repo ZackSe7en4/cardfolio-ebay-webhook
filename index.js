@@ -1,56 +1,66 @@
 // index.js
-require('dotenv').config(); // 本地开发时从 .env 读取环境变量
-
 const express = require('express');
 const crypto = require('crypto');
 
 const app = express();
 
-// 云环境会通过 PORT 环境变量指定端口
-const PORT = process.env.PORT || 3000;
-
-// 从环境变量读取 eBay 的配置
-const VERIFICATION_TOKEN = process.env.EBAY_VERIFICATION_TOKEN;
-const ENDPOINT_URL = process.env.EBAY_ENDPOINT_URL;
-
-if (!VERIFICATION_TOKEN || !ENDPOINT_URL) {
-  console.warn('⚠️ 环境变量未配置完整：EBAY_VERIFICATION_TOKEN 或 EBAY_ENDPOINT_URL 缺失');
-}
-
-// 解析 JSON body
+// 让 Express 能解析 JSON 请求体
 app.use(express.json());
 
-// 1) eBay 的验证请求（GET）
-app.get('/webhooks/ebay/account-deletion', (req, res) => {
-  const challengeCode = req.query.challenge_code;
+// 根路径健康检查（方便在浏览器里看服务是否在线）
+app.get('/', (req, res) => {
+  res.send('cardfolio-ebay-webhook is running');
+});
 
-  if (!challengeCode) {
-    console.log('⚠️ 收到验证请求但没有 challenge_code');
-    return res.status(400).send('Missing challenge_code');
+// eBay Marketplace Account Deletion webhook
+app.post('/webhooks/ebay/account-deletion', (req, res) => {
+  console.log('\n📩 收到 /webhooks/ebay/account-deletion 请求');
+  console.log('Headers:', JSON.stringify(req.headers, null, 2));
+  console.log('Body:', JSON.stringify(req.body, null, 2));
+
+  const body = req.body || {};
+
+  // 1️⃣ 验证 challenge（eBay 在你保存 endpoint 时发送）
+  const challengeCode =
+    body.challengeCode ||
+    body.challenge_code ||
+    (body.verification && body.verification.challengeCode);
+
+  const verificationToken =
+    body.verificationToken ||
+    body.verification_token ||
+    (body.verification && body.verification.verificationToken);
+
+  const expectedToken = process.env.EBAY_VERIFICATION_TOKEN;
+
+  if (challengeCode && verificationToken) {
+    console.log('🔐 验证请求:');
+    console.log('  challengeCode      =', challengeCode);
+    console.log('  verificationToken  =', verificationToken);
+    console.log('  expectedToken(.env)=', expectedToken);
+
+    if (verificationToken !== expectedToken) {
+      console.error('❌ 验证失败: verificationToken 不匹配');
+      return res.status(401).json({ error: 'Invalid verification token' });
+    }
+
+    // 按 eBay 要求返回 challengeResponse
+    const response = { challengeResponse: challengeCode };
+    console.log('✅ 返回 challengeResponse 给 eBay:', response);
+    return res.status(200).json(response);
   }
 
-  console.log('🔐 收到 eBay 验证请求, challenge_code =', challengeCode);
+  // 2️⃣ 正常的删除通知（保存成功后，Send Test Notification 会走这里）
+  console.log('📘 收到 eBay Marketplace Account Deletion 通知:');
+  console.log(JSON.stringify(body, null, 2));
 
-  const dataToHash = challengeCode + VERIFICATION_TOKEN + ENDPOINT_URL;
-  const hash = crypto.createHash('sha256').update(dataToHash, 'utf8').digest('hex');
+  // TODO: 这里按你的业务逻辑处理账号删除通知
 
-  const body = { challengeResponse: hash };
-
-  console.log('✅ 返回 challengeResponse 给 eBay:', body);
-
-  res.setHeader('Content-Type', 'application/json');
-  res.status(200).send(JSON.stringify(body));
+  return res.status(200).json({ status: 'ok' });
 });
 
-// 2) 真正的账号删除通知（POST）
-app.post('/webhooks/ebay/account-deletion', (req, res) => {
-  console.log('📩 收到 eBay Marketplace Account Deletion 通知:');
-  console.log(JSON.stringify(req.body, null, 2));
-
-  // TODO: 今后写入 Supabase，清理用户数据等
-  res.status(200).send('OK');
-});
-
+// Render 会注入 PORT， 本地则用 3000
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server listening on port ${PORT}`);
 });
