@@ -1,27 +1,19 @@
 // api/ebay-account-deletion.js
 
-/**
- * eBay Marketplace Account Deletion Webhook
- * Vercel Node serverless function
- */
-module.exports = async (req, res) => {
-  console.log('--- eBay webhook incoming ---');
-  console.log('Method:', req.method);
-  console.log('Query:', req.query);
+module.exports = (req, res) => {
+  const eventId = req.headers['x-ebay-message-id'] || null;
+  const topic = req.headers['x-ebay-topic'] || null;
+
+  console.log('---------------- eBay account deletion webhook ----------------');
+  console.log('Time   :', new Date().toISOString());
+  console.log('EventID:', eventId);
+  console.log('Topic  :', topic);
   console.log('Headers:', req.headers);
-  console.log('Body:', req.body);
+  console.log('Body   :', JSON.stringify(req.body, null, 2));
+  console.log('----------------------------------------------------------------');
 
-  // 有些验证会用 GET + challenge 参数
-  if (req.method === 'GET' && req.query && req.query.challenge) {
-    return res.status(200).send(req.query.challenge);
-  }
+  // TODO: 这里未来可以接你自己的业务逻辑：
+  // 比如找到对应用户 → 标记为已删除 / 清除数据等等
 
-  // 正式的删除通知一般是 POST JSON
-  if (req.method === 'POST') {
-    // TODO: 后面我们可以在这里写入 Supabase / 发送邮件等
-    return res.status(200).json({ status: 'ok' });
-  }
-
-  // 其它情况统一 200，避免 eBay 认为失败
-  return res.status(200).send('OK');
+  res.status(200).send({ status: 'ok' });
 };
